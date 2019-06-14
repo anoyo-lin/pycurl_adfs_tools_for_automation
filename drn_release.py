@@ -32,7 +32,10 @@ class corp_conn:
         self.uep_folder_made = False
         if pub_s3_url:
             self.pub_s3_url = pub_s3_url + 'drn_{0}'.format(self.pub_swver) + '/'
-        self.proxy_url = config['url']['proxy_url']
+        try:
+            self.proxy_url = config['url']['proxy_url']
+        except:
+            self.proxy_url = False
     def request(self, request_url, method='GET', payload=None):
         self.payload=payload
         self.url=request_url
@@ -71,6 +74,16 @@ class corp_conn:
                 conn.setopt(conn.HTTPPOST, [('fileset_name', uep_add_folder_name)])
             credential = self.uep_user + ':' + self.uep_pwd
             conn.setopt(conn.USERPWD, credential)
+        if self.payload and method == 'UEP_ADD':
+            credential = self.uep_user + ':' + self.uep_pwd
+            conn.setopt(conn.USERPWD, credential)
+            conn.setopt(pycurl.HTTPHEADER, ['Content-Type: application/xml'])
+            conn.setopt(pycurl.POST, 1)
+            conn.setopt(pycurl.POSTFIELDS, self.payload)
+        if self.payload and method == 'UEP_PACK':
+            credential = self.uep_user + ':' + self.uep_pwd
+            conn.setopt(conn.USERPWD, credential)
+            conn.setopt(conn.HTTPPOST, [('name', 'upload_file'), ('file', (conn.FORM_FILE, self.payload))])
         if self.payload and method == 'POST':
             conn.setopt(pycurl.POST, 1)
             conn.setopt(pycurl.POSTFIELDS, self.payload)
@@ -93,6 +106,7 @@ class corp_conn:
         self.status_code = conn.getinfo(pycurl.HTTP_CODE)
         conn.close()
         print (self.destination,self.status_code,self.body.decode('utf-8'))
+        return self.body.decode('utf-8')
     def get_value_from_credential(self, index, section):
         config = configparser.ConfigParser()
         config.read('credential.ini')
@@ -133,12 +147,12 @@ class corp_conn:
             skeleton["videoUrl"]=self.pub_video_url
             self.payload = json.dumps(skeleton)
     def saml_resp(self):
-        self.request(url=self.url)
+        self.request(request_url=self.url)
         if self.destination != self.url:			
             if self.destination == 'https://fs.[redacted].com/my.policy':
                 if os.path.isfile('cookies'):
                     os.remove('cookies')
-                    self.request(url=self.url)
+                    self.request(request_url=self.url)
                 self.gen_payload('TOKEN')
                 self.request(self.destination, 'POST', self.payload)
                 self.gen_payload('AUTH')
@@ -220,5 +234,64 @@ def unpub():
             continue
         else:
             print ('unexpect error')
+def add():
+    config = configparser.ConfigParser()
+    config.read('credential.ini')
+    file_name = config['add']['file']
+    app_sw_id = config['add']['app_sw_id']
+    sim_id_lst = config['add']['sim_id'].split(',')
+    info = list(file_name.split('_'))
+    model_id = info[0]
+    cdf_id = info[1] 
+    src_cdf_rev = list(info[2].split('-'))[0]
+    cdf_rev = list(info[2].split('-'))[1]
+    src_ver = list(info[5].split('-'))[0]
+    target_ver = list(info[5].split('-'))[1]
+    gen_type = info[4]
+    apk_type = info[6].lower()
+    user_type = info[7]
+    red_brown = { 'Brown': 'test', 'Red': 'live' }
+    s1_type = red_brown[info[8].split('.')[0]]
+    uid = config['add']['uid']
+
+
+    file_path = '/cygdrive/c/Users/{1}/Desktop/{0}'.format(file_name, uid)
+    dl_url =   config['add']['uep_dl_url'] 
+    api_url = config['add']['uep_api_url']
+    up_url = config['add']['up_url']
+
+    rom_url = '{0}/s1{5}-apk{3}/{4}/{1}/{2}'.format(dl_url, model_id, file_name, apk_type, user_type, s1_type)
+    query_url = '{0}/s1{4}-apk{2}/{3}/{1}/metadataaccessors'.format(api_url, model_id, apk_type, user_type, s1_type)
+    url = '{0}/s1{4}-apk{2}/{3}/{1}/metadata'.format(api_url, model_id, apk_type, user_type, s1_type)
+    upload_url = '{0}/s1{4}-apk{2}/{3}/{1}'.format(up_url, model_id, apk_type, user_type, s1_type)
+      
+    import os
+    file_size = os.path.getsize(file_path)
+    sha256sum = subprocess.check_output("sha256sum %s|awk '{print $1}'" % file_path, shell=True).decode("utf-8").rstrip('\n')
+
+    payload = '<MetaData><TargetSoftwareRevision>{0}</TargetSoftwareRevision><TargetCustomRevision>{1}</TargetCustomRevision><TargetFileSystemVariant>GENERIC</TargetFileSystemVariant><TargetFileSystemRevision>{0}</TargetFileSystemRevision><DownloadURL>{2}</DownloadURL><Size>{3}</Size><Hash>{4}</Hash></MetaData>'.format(target_ver, cdf_rev, rom_url, file_size, sha256sum)
+    gene = corp_conn(url, verbose=False)
+    gene.saml_resp()
+    resp_xml = gene.request(gene.url, 'UEP_ADD', payload)
+    import xml.etree.ElementTree as ET
+    root = ET.fromstring(resp_xml)
+    uep_id = root.find('ID').text
+    query_url = query_url + '/' + uep_id
+    query_gene = corp_conn(query_url, verbose=False)
+    query_gene.saml_resp()
+    for sim_id in sim_id_lst:
+        payload = '<AccessPath>ota:{0}:{1}:{2}:{3}:*:*:*:*:{4}</AccessPath>'.format(app_sw_id, src_ver, cdf_id, src_cdf_rev, sim_id)
+        query_gene.request(query_gene.url, 'UEP_ADD', payload)
+
+    pack_up = corp_conn(upload_url, verbose=False)
+    pack_up.saml_resp()
+    pack_up.request(pack_up.url, 'UEP_PACK' , file_path)
+
+    get_sha256 = pack_up.request(upload_url + '/' + file_name)
+    if sha256sum == get_sha256:
+        print('finished')
+    else:
+        print("sha256 hash didn't match")
+
 if __name__ == '__main__':
-    release()
+    add()
