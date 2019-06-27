@@ -234,12 +234,12 @@ def unpub():
             continue
         else:
             print ('unexpect error')
-def add():
+def add(file_name, sim_id_lst_pattern):
     config = configparser.ConfigParser()
     config.read('credential.ini')
-    file_name = config['add']['file']
+    #file_name = config['add']['file']
     app_sw_id = config['add']['app_sw_id']
-    sim_id_lst = config['add']['sim_id'].split(',')
+    sim_id_lst = sim_id_lst_pattern.split(',')
     info = list(file_name.split('_'))
     model_id = info[0]
     cdf_id = info[1] 
@@ -269,7 +269,7 @@ def add():
     file_size = os.path.getsize(file_path)
     sha256sum = subprocess.check_output("sha256sum %s|awk '{print $1}'" % file_path, shell=True).decode("utf-8").rstrip('\n')
 
-    payload = '<MetaData><TargetSoftwareRevision>{0}</TargetSoftwareRevision><TargetCustomRevision>{1}</TargetCustomRevision><TargetFileSystemVariant>GENERIC</TargetFileSystemVariant><TargetFileSystemRevision>{0}</TargetFileSystemRevision><DownloadURL>{2}</DownloadURL><Size>{3}</Size><Hash>{4}</Hash></MetaData>'.format(target_ver, cdf_rev, rom_url, file_size, sha256sum)
+    payload = '<MetaData><TargetSoftwareRevision>{0}</TargetSoftwareRevision><TargetCustomRevision>{1}</TargetCustomRevision><TargetFileSystemVariant>{5}</TargetFileSystemVariant><TargetFileSystemRevision>{0}</TargetFileSystemRevision><DownloadURL>{2}</DownloadURL><Size>{3}</Size><Hash>{4}</Hash></MetaData>'.format(target_ver, cdf_rev, rom_url, file_size, sha256sum, gen_type)
     gene = corp_conn(url, verbose=False)
     gene.saml_resp()
     resp_xml = gene.request(gene.url, 'UEP_ADD', payload)
@@ -280,10 +280,13 @@ def add():
     query_gene = corp_conn(query_url, verbose=False)
     query_gene.saml_resp()
     for sim_id in sim_id_lst:
-        payload = '<AccessPath>ota:{0}:{1}:{2}:{3}:*:*:*:*:{4}</AccessPath>'.format(app_sw_id, src_ver, cdf_id, src_cdf_rev, sim_id)
-        query_gene.request(query_gene.url, 'UEP_ADD', payload)
+        if sim_id == '':
+            payload = '<AccessPath>ota:{0}:{1}:{2}:{3}</AccessPath>'.format(app_sw_id, src_ver, cdf_id, src_cdf_rev) 
+        else:
+            payload = '<AccessPath>ota:{0}:{1}:{2}:{3}:*:*:*:*:{4}</AccessPath>'.format(app_sw_id, src_ver, cdf_id, src_cdf_rev, sim_id)
+    query_gene.request(query_gene.url, 'UEP_ADD', payload)
 
-    pack_up = corp_conn(upload_url, verbose=False)
+    pack_up = corp_conn(upload_url, verbose=True)
     pack_up.saml_resp()
     pack_up.request(pack_up.url, 'UEP_PACK' , file_path)
 
@@ -292,6 +295,13 @@ def add():
         print('finished')
     else:
         print("sha256 hash didn't match")
+def multi_add():
+    import configparser
+    config = configparser.ConfigParser()
+    config.read('credential.ini')
+    for file_name, sim_id_lst_pattern in  zip(config ['add']['file'].split(','), config['add']['sim_id'].split(';')):
+        add(file_name, sim_id_lst_pattern)
 
 if __name__ == '__main__':
-    add()
+    multi_add()
+
