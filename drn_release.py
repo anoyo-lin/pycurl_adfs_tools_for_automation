@@ -264,6 +264,8 @@ def add(file_name, sim_id_lst_pattern):
     query_url = '{0}/s1{4}-apk{2}/{3}/{1}/metadataaccessors'.format(api_url, model_id, apk_type, user_type, s1_type)
     url = '{0}/s1{4}-apk{2}/{3}/{1}/metadata'.format(api_url, model_id, apk_type, user_type, s1_type)
     upload_url = '{0}/s1{4}-apk{2}/{3}/{1}'.format(up_url, model_id, apk_type, user_type, s1_type)
+    dir_url = '{0}/s1{4}-apk{2}/{3}'.format(api_url, model_id, apk_type, user_type, s1_type)
+
       
     import os
     file_size = os.path.getsize(file_path)
@@ -273,6 +275,18 @@ def add(file_name, sim_id_lst_pattern):
     gene = corp_conn(url, verbose=False)
     gene.saml_resp()
     resp_xml = gene.request(gene.url, 'UEP_ADD', payload)
+    while gene.status_code != 200:
+        dir_payload = '<Model><Name>{}</Name></Model>'.format(model_id)
+        temp = corp_conn(dir_url, verbose=False)
+        temp.saml_resp()
+
+        temp.request(temp.url, 'UEP_ADD', dir_payload)
+        if temp.status_code != '200':
+            print ('create directory failed')
+            sys.exit(-1)
+        gene.saml_resp()
+        resp_xml = gene.request(gene.url, 'UEP_ADD', payload)
+
     import xml.etree.ElementTree as ET
     root = ET.fromstring(resp_xml)
     uep_id = root.find('ID').text
@@ -286,7 +300,7 @@ def add(file_name, sim_id_lst_pattern):
             payload = '<AccessPath>ota:{0}:{1}:{2}:{3}:*:*:*:*:{4}</AccessPath>'.format(app_sw_id, src_ver, cdf_id, src_cdf_rev, sim_id)
     query_gene.request(query_gene.url, 'UEP_ADD', payload)
 
-    pack_up = corp_conn(upload_url, verbose=True)
+    pack_up = corp_conn(upload_url, verbose=False)
     pack_up.saml_resp()
     pack_up.request(pack_up.url, 'UEP_PACK' , file_path)
 
