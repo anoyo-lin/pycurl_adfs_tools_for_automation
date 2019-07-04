@@ -331,9 +331,11 @@ def change_priority():
 #'MetaDataObjects'
 #>>> et_s[0].tag
 #'MetaDataObject'
-#
-    model_id = 'abrakadabra5'
-    url = 'https://services/updates/applications/s1test-apklive/%s/metadata' % model_id
+    config = configparser.ConfigParser()
+    config.read('./credential.ini')
+    model_id = config['app']['model_id']
+    domain_name = config['app']['domain_name']
+    url = 'https://{0}/services/updates/applications/s1test-apklive/{1}/metadata'.format(domain_name, model_id)
     gene = corp_conn(url , verbose=False)
     gene.saml_resp()
     resp_xml = gene.request(gene.url, 'UEP_QUERY')
@@ -341,7 +343,9 @@ def change_priority():
     root = ET.fromstring(resp_xml)
     id_lst = [ child.find('ID').text for child in root ]
     try: maximum = int(id_lst[0])
-    except IndexError: print('fxxk')
+    except IndexError: 
+        print('the metadata list is empty')
+        raise exception
     for num in id_lst:
         if int(num) > maximum:
             maximum = int(num)
