@@ -55,6 +55,13 @@ class corp_conn:
         conn.setopt(pycurl.COOKIEJAR, 'cookies')
         conn.setopt(pycurl.COOKIEFILE, 'cookies')
         conn.setopt(pycurl.FAILONERROR, 0)
+        re_pattern = re.compile('UEP_.*')
+        if re_pattern.search(method):
+            credential = self.uep_user + ':' + self.uep_pwd
+            conn.setopt(conn.USERPWD, credential)
+
+
+
         if self.payload and method == 'UEP_UPLOAD':
             try:
                 uep_add_folder_name = 'drn_' + self.pub_swver
@@ -72,18 +79,17 @@ class corp_conn:
             else:
                 conn.setopt(conn.URL, self.url)
                 conn.setopt(conn.HTTPPOST, [('fileset_name', uep_add_folder_name)])
-            credential = self.uep_user + ':' + self.uep_pwd
-            conn.setopt(conn.USERPWD, credential)
         if self.payload and method == 'UEP_ADD':
-            credential = self.uep_user + ':' + self.uep_pwd
-            conn.setopt(conn.USERPWD, credential)
             conn.setopt(pycurl.HTTPHEADER, ['Content-Type: application/xml'])
             conn.setopt(pycurl.POST, 1)
             conn.setopt(pycurl.POSTFIELDS, self.payload)
+        if self.payload and method == 'UEP_PUT':
+            conn.setopt(pycurl.HTTPHEADER, ['Content-Type: application/xml'])
+            conn.setopt(pycurl.CUSTOMREQUEST, 'PUT')
+            conn.setopt(pycurl.POSTFIELDS, self.payload)
         if self.payload and method == 'UEP_PACK':
-            credential = self.uep_user + ':' + self.uep_pwd
-            conn.setopt(conn.USERPWD, credential)
             conn.setopt(conn.HTTPPOST, [('name', 'upload_file'), ('file', (conn.FORM_FILE, self.payload))])
+
         if self.payload and method == 'POST':
             conn.setopt(pycurl.POST, 1)
             conn.setopt(pycurl.POSTFIELDS, self.payload)
@@ -214,7 +220,7 @@ def release():
 def unpub():
     config = configparser.ConfigParser()
     config.read('credential.ini')
-    SwId=config['unpub']['SwId'].spilit(',')
+    SwId=config['unpub']['SwId'].split(',')
     types = ['updates', 'fileupload']
     envs = ['s1test-apklive', 's1test-apktest', 'pcm-apklive', 's1live-apklive']
     grps = ['user', 'userdebug', 'eng']
@@ -227,9 +233,9 @@ def unpub():
     for url in urls:
         delete_file = corp_conn(url, verbose=False)
         delete_file.saml_resp()
-        if delete.status_code == '200':
+        if delete_file.status_code == '200':
             delete_file.request(method='DELETE')
-        elif delete.status_code == '404':
+        elif delete_file.status_code == '404':
             print ('file not found')
             continue
         else:
@@ -316,6 +322,47 @@ def multi_add():
     for file_name, sim_id_lst_pattern in  zip(config ['add']['file'].split(','), config['add']['sim_id'].split(';')):
         add(file_name, sim_id_lst_pattern)
 
+def change_priority():
+#<MetaDataObjects><MetaDataObject><ID>320074</ID><URL>https://services/updates/applications/s1test-apklive/abrakadabra5/metadata/320074</URL></MetaDataObject><MetaDataObject><ID>320080</ID><URL>https://services/updates/applications/s1test-apklive/abrakadabra5/metadata/320080</URL></MetaDataObject></MetaDataObjects>
+#>>> et_s = ET.fromstring(s)
+#>>> et_s
+#<Element 'MetaDataObjects' at 0x6ffffb2d638>
+#>>> et_s.tag
+#'MetaDataObjects'
+#>>> et_s[0].tag
+#'MetaDataObject'
+#
+    model_id = 'abrakadabra5'
+    url = 'https://services/updates/applications/s1test-apklive/%s/metadata' % model_id
+    gene = corp_conn(url , verbose=False)
+    gene.saml_resp()
+    resp_xml = gene.request(gene.url, 'UEP_QUERY')
+    import xml.etree.ElementTree as ET
+    root = ET.fromstring(resp_xml)
+    id_lst = [ child.find('ID').text for child in root ]
+    try: maximum = int(id_lst[0])
+    except IndexError: print('fxxk')
+    for num in id_lst:
+        if int(num) > maximum:
+            maximum = int(num)
+    url = url + '/' + str(maximum)
+    gene.url = url
+    resp_xml = gene.request(gene.url, 'UEP_QUERY')
+    root = ET.fromstring(resp_xml)
+    root.remove(root.find('ID'))
+    if root.find('Priority'):
+        priority = ET.SubElement(root, 'Priority')
+        priority.text = '200'
+    else:
+        root.find('Priority').text = '200'
+    payload = ET.tostring(root)
+    gene.request(url, 'UEP_PUT', payload)
+    
+
+
+
 if __name__ == '__main__':
-    multi_add()
+#    multi_add()
+#    unpub()
+    change_priority()
 
