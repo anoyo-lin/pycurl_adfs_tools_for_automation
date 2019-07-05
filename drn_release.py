@@ -333,37 +333,36 @@ def change_priority():
 #'MetaDataObject'
     config = configparser.ConfigParser()
     config.read('./credential.ini')
-    model_id = config['app']['model_id']
+    model_id_lst = config['app']['model_id'].split(',')
     domain_name = config['app']['domain_name']
-    url = 'https://{0}/services/updates/applications/s1test-apklive/{1}/metadata'.format(domain_name, model_id)
-    gene = corp_conn(url , verbose=False)
-    gene.saml_resp()
-    resp_xml = gene.request(gene.url, 'UEP_QUERY')
-    import xml.etree.ElementTree as ET
-    root = ET.fromstring(resp_xml)
-    id_lst = [ child.find('ID').text for child in root ]
-    try: maximum = int(id_lst[0])
-    except IndexError: 
-        print('the metadata list is empty')
-        raise exception
-    for num in id_lst:
-        if int(num) > maximum:
-            maximum = int(num)
-    url = url + '/' + str(maximum)
-    gene.url = url
-    resp_xml = gene.request(gene.url, 'UEP_QUERY')
-    root = ET.fromstring(resp_xml)
-    root.remove(root.find('ID'))
-    if root.find('Priority'):
-        priority = ET.SubElement(root, 'Priority')
-        priority.text = '200'
-    else:
-        root.find('Priority').text = '200'
-    payload = ET.tostring(root)
-    gene.request(url, 'UEP_PUT', payload)
-    
-
-
+    for model_id in model_id_lst:
+        url = 'https://{0}/services/updates/applications/s1test-apklive/{1}/metadata'.format(domain_name, model_id)
+        gene = corp_conn(url , verbose=False)
+        gene.saml_resp()
+        resp_xml = gene.request(gene.url, 'UEP_QUERY')
+        import xml.etree.ElementTree as ET
+        root = ET.fromstring(resp_xml)
+        #root is a list of <MetaDataObject>
+        id_lst = [ child.find('ID').text for child in root ]
+        try: maximum = int(id_lst[0])
+        except IndexError: 
+            print('the metadata list is empty')
+            raise exception
+        for num in id_lst:
+            if int(num) > maximum:
+                maximum = int(num)
+        url = url + '/' + str(maximum)
+        gene.url = url
+        resp_xml = gene.request(gene.url, 'UEP_QUERY')
+        root = ET.fromstring(resp_xml)
+        root.remove(root.find('ID'))
+        if root.find('Priority'):
+            priority = ET.SubElement(root, 'Priority')
+            priority.text = '200'
+        else:
+            root.find('Priority').text = '200'
+        payload = ET.tostring(root)
+        gene.request(url, 'UEP_PUT', payload)
 
 if __name__ == '__main__':
 #    multi_add()
