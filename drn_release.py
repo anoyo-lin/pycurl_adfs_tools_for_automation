@@ -89,7 +89,10 @@ class corp_conn:
             conn.setopt(pycurl.POSTFIELDS, self.payload)
         if self.payload and method == 'UEP_PACK':
             conn.setopt(conn.HTTPPOST, [('name', 'upload_file'), ('file', (conn.FORM_FILE, self.payload))])
-
+        if method == 'UEP_FIRM_DIR':
+            conn.setopt(pycurl.POST, 1)
+            conn.setopt(pycurl.POSTFIELDS, '----WebKitFormBoundary--\r\n')
+            conn.setopt(pycurl.HTTPHEADER, ['Content-Type:multipart/form-data; boundary=----WebKitFormBoundary'])
         if self.payload and method == 'POST':
             conn.setopt(pycurl.POST, 1)
             conn.setopt(pycurl.POSTFIELDS, self.payload)
@@ -271,6 +274,7 @@ def add(file_name, sim_id_lst_pattern):
     url = '{0}/s1{4}-apk{2}/{3}/{1}/metadata'.format(api_url, model_id, apk_type, user_type, s1_type)
     upload_url = '{0}/s1{4}-apk{2}/{3}/{1}'.format(up_url, model_id, apk_type, user_type, s1_type)
     dir_url = '{0}/s1{4}-apk{2}/{3}'.format(api_url, model_id, apk_type, user_type, s1_type)
+    firm_dir = '{0}/s1{4}-apk{2}/{3}?fileset_name={1}'.format(up_url, model_id, apk_type, user_type, s1_type)
 
       
     import os
@@ -280,18 +284,13 @@ def add(file_name, sim_id_lst_pattern):
     payload = '<MetaData><TargetSoftwareRevision>{0}</TargetSoftwareRevision><TargetCustomRevision>{1}</TargetCustomRevision><TargetFileSystemVariant>{5}</TargetFileSystemVariant><TargetFileSystemRevision>{0}</TargetFileSystemRevision><DownloadURL>{2}</DownloadURL><Size>{3}</Size><Hash>{4}</Hash></MetaData>'.format(target_ver, cdf_rev, rom_url, file_size, sha256sum, gen_type)
     gene = corp_conn(url, verbose=False)
     gene.saml_resp()
-    resp_xml = gene.request(gene.url, 'UEP_ADD', payload)
-    while gene.status_code != 200:
+    if gene.status_code != 200:
         dir_payload = '<Model><Name>{}</Name></Model>'.format(model_id)
-        temp = corp_conn(dir_url, verbose=False)
-        temp.saml_resp()
-
-        temp.request(temp.url, 'UEP_ADD', dir_payload)
-        if temp.status_code != '200':
+        gene.request(dir_url, 'UEP_ADD', dir_payload)
+        if gene.status_code != 201:
             print ('create directory failed')
             sys.exit(-1)
-        gene.saml_resp()
-        resp_xml = gene.request(gene.url, 'UEP_ADD', payload)
+    resp_xml = gene.request(url, 'UEP_ADD', payload)
 
     import xml.etree.ElementTree as ET
     root = ET.fromstring(resp_xml)
@@ -308,7 +307,12 @@ def add(file_name, sim_id_lst_pattern):
 
     pack_up = corp_conn(upload_url, verbose=False)
     pack_up.saml_resp()
-    pack_up.request(pack_up.url, 'UEP_PACK' , file_path)
+    if pack_up.status_code != 200:
+        pack_up.request(firm_dir, 'UEP_FIRM_DIR')
+        if pack_up.status_code !=201:
+            print ('directory created failed!')
+            sys.exit(-1)
+    pack_up.request(upload_url, 'UEP_PACK' , file_path)
 
     get_sha256 = pack_up.request(upload_url + '/' + file_name)
     if sha256sum == get_sha256:
@@ -365,7 +369,7 @@ def change_priority():
         gene.request(url, 'UEP_PUT', payload)
 
 if __name__ == '__main__':
-#    multi_add()
+    multi_add()
 #    unpub()
-    change_priority()
+#    change_priority()
 
