@@ -303,7 +303,7 @@ def add(file_name, sim_id_lst_pattern):
             payload = '<AccessPath>ota:{0}:{1}:{2}:{3}</AccessPath>'.format(app_sw_id, src_ver, cdf_id, src_cdf_rev) 
         else:
             payload = '<AccessPath>ota:{0}:{1}:{2}:{3}:*:*:*:*:{4}</AccessPath>'.format(app_sw_id, src_ver, cdf_id, src_cdf_rev, sim_id)
-    query_gene.request(query_gene.url, 'UEP_ADD', payload)
+            query_gene.request(query_gene.url, 'UEP_ADD', payload)
 
     pack_up = corp_conn(upload_url, verbose=False)
     pack_up.saml_resp()
