@@ -36,9 +36,12 @@ class corp_conn:
             self.proxy_url = config['url']['proxy_url']
         except:
             self.proxy_url = False
-    def request(self, request_url, method='GET', payload=None):
-        self.payload=payload
-        self.url=request_url
+#Default argument values are evaluated at function define-time, but self is an argument only available at function call time. Thus arguments in the argument list cannot refer each other.
+    def request(self, request_url=None, method='GET', payload=None):
+
+        if request_url: self.url = request_url 
+        if payload: self.payload = payload
+        
         conn = pycurl.Curl()
         try:
             json.loads(self.payload)
@@ -55,14 +58,13 @@ class corp_conn:
         conn.setopt(pycurl.COOKIEJAR, 'cookies')
         conn.setopt(pycurl.COOKIEFILE, 'cookies')
         conn.setopt(pycurl.FAILONERROR, 0)
+
         re_pattern = re.compile('UEP_.*')
         if re_pattern.search(method):
             credential = self.uep_user + ':' + self.uep_pwd
             conn.setopt(conn.USERPWD, credential)
 
-
-
-        if self.payload and method == 'UEP_UPLOAD':
+        if self.payload and method == 'UEP_UPLOAD_DRN':
             try:
                 uep_add_folder_name = 'drn_' + self.pub_swver
             except:
@@ -70,7 +72,7 @@ class corp_conn:
                 sys.exit(-1)
             if 'file' in self.payload:
                 if self.uep_folder_made == False:
-                    self.request(method='UEP_UPLOAD')
+                    self.request(method='UEP_UPLOAD_DRN')
                     self.uep_folder_made = True
                 uep_add_folder_url = os.path.join(self.url, uep_add_folder_name)
                 conn.setopt(conn.URL, uep_add_folder_url)
@@ -79,28 +81,39 @@ class corp_conn:
             else:
                 conn.setopt(conn.URL, self.url)
                 conn.setopt(conn.HTTPPOST, [('fileset_name', uep_add_folder_name)])
-        if self.payload and method == 'UEP_ADD':
+
+        if self.payload and method == 'UEP_UPLOAD_PKG':
+            conn.setopt(conn.HTTPPOST, [('name', 'upload_file'), ('file', (conn.FORM_FILE, self.payload))])
+            
+        if self.payload and method == 'UEP_POST':
             conn.setopt(pycurl.HTTPHEADER, ['Content-Type: application/xml'])
             conn.setopt(pycurl.POST, 1)
             conn.setopt(pycurl.POSTFIELDS, self.payload)
+
         if self.payload and method == 'UEP_PUT':
             conn.setopt(pycurl.HTTPHEADER, ['Content-Type: application/xml'])
             conn.setopt(pycurl.CUSTOMREQUEST, 'PUT')
             conn.setopt(pycurl.POSTFIELDS, self.payload)
-        if self.payload and method == 'UEP_PACK':
-            conn.setopt(conn.HTTPPOST, [('name', 'upload_file'), ('file', (conn.FORM_FILE, self.payload))])
+
+        if method == 'UEP_DELETE':
+            conn.setopt(pycurl.CUSTOMREQUEST, 'DELETE')       
+            
         if method == 'UEP_FIRM_DIR':
             conn.setopt(pycurl.POST, 1)
             conn.setopt(pycurl.POSTFIELDS, '----WebKitFormBoundary--\r\n')
             conn.setopt(pycurl.HTTPHEADER, ['Content-Type:multipart/form-data; boundary=----WebKitFormBoundary'])
+            
         if self.payload and method == 'POST':
             conn.setopt(pycurl.POST, 1)
             conn.setopt(pycurl.POSTFIELDS, self.payload)
+
         elif self.payload and method == 'PUT':
             conn.setopt(pycurl.CUSTOMREQUEST, 'PUT')
             conn.setopt(pycurl.POSTFIELDS, self.payload)
+            
         elif method == 'DELETE':
             conn.setopt(pycurl.CUSTOMREQUEST, 'DELETE')       
+
         if self.proxy_url :
             if ':' in self.proxy_url:
                 proxy = self.proxy_url.rsplit(':', 1)[0]
@@ -108,6 +121,7 @@ class corp_conn:
             conn.setopt(pycurl.PROXY, proxy)
             conn.setopt(pycurl.PROXYPORT, port)
             conn.setopt(pycurl.PROXYUSERPWD, "%s:%s" % (self.short_user,self.password))
+
         conn.perform()
         self.body = buffer.getvalue()
         buffer.close()
@@ -116,6 +130,7 @@ class corp_conn:
         conn.close()
         print (self.destination,self.status_code,self.body.decode('utf-8'))
         return self.body.decode('utf-8')
+
     def get_value_from_credential(self, index, section):
         config = configparser.ConfigParser()
         config.read('credential.ini')
@@ -156,12 +171,12 @@ class corp_conn:
             skeleton["videoUrl"]=self.pub_video_url
             self.payload = json.dumps(skeleton)
     def saml_resp(self):
-        self.request(request_url=self.url)
+        self.request(self.url)
         if self.destination != self.url:			
             if self.destination == 'https://fs.[redacted].com/my.policy':
                 if os.path.isfile('cookies'):
                     os.remove('cookies')
-                    self.request(request_url=self.url)
+                    self.request(self.url)
                 self.gen_payload('TOKEN')
                 self.request(self.destination, 'POST', self.payload)
                 self.gen_payload('AUTH')
@@ -176,7 +191,7 @@ class corp_conn:
             for inputtag in soup.find_all('input'):
                 if inputtag.get('name') == 'SAMLResponse' :
                     assertion = inputtag.get('value')
-            self.request(saml_endpoint_url, method='POST', payload=urlencode({'SAMLResponse':assertion}))	
+            self.request(request_url=saml_endpoint_url, method='POST', payload=urlencode({'SAMLResponse':assertion}))	
 def pub():
     config = configparser.ConfigParser()
     config.read('credential.ini')
@@ -189,11 +204,11 @@ def pub():
         rn_media_url = config['url']['put_media_data'] % (json.loads(get_rn_id.saml_resp())[0]['releaseNoteId'],)
         put_rn_info = corp_conn(rn_media_url, verbose=False, pub_s3_url = uep_s3_url)
         put_rn_info.gen_payload(type='DRN')
-        put_rn_info.request(method='PUT')
+        put_rn_info.request(request_url=self.url, method='PUT')
     uep_url = config['url']['uep_url']
     put_file_from_uep_admin = corp_conn(uep_url, verbose=False)
     for local_file in os.listdir('./media'):
-        put_file_from_uep_admin.request(method='UEP_UPLOAD', payload={'file': local_file})
+        put_file_from_uep_admin.request(request_url=self.url, method='UEP_UPLOAD_DRN', payload={'file': local_file})
 
 def release():
     config = configparser.ConfigParser()
@@ -219,7 +234,7 @@ def release():
     gene = corp_conn(url, verbose=False)
     gene.saml_resp()
     gene.request(gene.url, 'POST', payload)
-    gene.saml_resp()
+
 def unpub():
     config = configparser.ConfigParser()
     config.read('credential.ini')
@@ -232,13 +247,13 @@ def unpub():
         for j in range(0, len(envs)):
             for k in range(0, len(grps)):
                 for l in range(0, len(SwId)):
-                        urls.append(config['url']['uep_delete'] % (types[i], envs[j], grps[k], SwId[l]))
+                        urls.append(config['unpub']['uep_delete'] % (types[i], envs[j], grps[k], SwId[l]))
     for url in urls:
         delete_file = corp_conn(url, verbose=False)
         delete_file.saml_resp()
-        if delete_file.status_code == '200':
-            delete_file.request(method='DELETE')
-        elif delete_file.status_code == '404':
+        if delete_file.status_code == 200:
+            delete_file.request(request_url=url, method='UEP_DELETE')
+        elif delete_file.status_code == 404:
             print ('file not found')
             continue
         else:
@@ -286,11 +301,11 @@ def add(file_name, sim_id_lst_pattern):
     gene.saml_resp()
     if gene.status_code != 200:
         dir_payload = '<Model><Name>{}</Name></Model>'.format(model_id)
-        gene.request(dir_url, 'UEP_ADD', dir_payload)
+        gene.request(dir_url, 'UEP_POST', dir_payload)
         if gene.status_code != 201:
             print ('create directory failed')
             sys.exit(-1)
-    resp_xml = gene.request(url, 'UEP_ADD', payload)
+    resp_xml = gene.request(url, 'UEP_POST', payload)
 
     import xml.etree.ElementTree as ET
     root = ET.fromstring(resp_xml)
@@ -303,7 +318,7 @@ def add(file_name, sim_id_lst_pattern):
             payload = '<AccessPath>ota:{0}:{1}:{2}:{3}</AccessPath>'.format(app_sw_id, src_ver, cdf_id, src_cdf_rev) 
         else:
             payload = '<AccessPath>ota:{0}:{1}:{2}:{3}:*:*:*:*:{4}</AccessPath>'.format(app_sw_id, src_ver, cdf_id, src_cdf_rev, sim_id)
-            query_gene.request(query_gene.url, 'UEP_ADD', payload)
+            query_gene.request(query_gene.url, 'UEP_POST', payload)
 
     pack_up = corp_conn(upload_url, verbose=False)
     pack_up.saml_resp()
@@ -312,7 +327,7 @@ def add(file_name, sim_id_lst_pattern):
         if pack_up.status_code !=201:
             print ('directory created failed!')
             sys.exit(-1)
-    pack_up.request(upload_url, 'UEP_PACK' , file_path)
+    pack_up.request(upload_url, 'UEP_UPLOAD_PKG' , file_path)
 
     get_sha256 = pack_up.request(upload_url + '/' + file_name)
     if sha256sum == get_sha256:
@@ -360,16 +375,19 @@ def change_priority():
         resp_xml = gene.request(gene.url, 'UEP_QUERY')
         root = ET.fromstring(resp_xml)
         root.remove(root.find('ID'))
-        if root.find('Priority'):
+        #default root.find('Priority') is FALSE
+        if  root.find('Priority') != None:
+            root.find('Priority').text = '200'
+        else:
             priority = ET.SubElement(root, 'Priority')
             priority.text = '200'
-        else:
-            root.find('Priority').text = '200'
+        print (ET.tostring(root))
+        input()
         payload = ET.tostring(root)
         gene.request(url, 'UEP_PUT', payload)
 
 if __name__ == '__main__':
-    multi_add()
+#    multi_add()
 #    unpub()
 #    change_priority()
 
