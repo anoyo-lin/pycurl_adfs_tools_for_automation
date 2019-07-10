@@ -29,7 +29,7 @@ class corp_conn:
         self.uep_pwd = base64.b64decode(config['uep_admin']['password']).decode('utf-8').rstrip()
         self.pub_video_url = config['pub']['videoUrl']
         self.pub_swver = config['pub']['SwVer']
-        self.uep_folder_made = False
+#        self.uep_folder_made = False
         if pub_s3_url:
             self.pub_s3_url = pub_s3_url + 'drn_{0}'.format(self.pub_swver) + '/'
         try:
@@ -71,16 +71,16 @@ class corp_conn:
                 print ('wrong payload')
                 sys.exit(-1)
             if 'file' in self.payload:
-                if self.uep_folder_made == False:
-                    self.request(method='UEP_UPLOAD_DRN')
-                    self.uep_folder_made = True
-                uep_add_folder_url = os.path.join(self.url, uep_add_folder_name)
-                conn.setopt(conn.URL, uep_add_folder_url)
-                local_file = os.path.join('./media', self.payload['file'])
+#                if self.uep_folder_made == False:
+#                    self.request(method='UEP_UPLOAD_DRN')
+#                    self.uep_folder_made = True
+#                uep_add_folder_url = os.path.join(self.url, uep_add_folder_name)
+#                conn.setopt(conn.URL, uep_add_folder_url)
+                local_file = os.path.join(os.path.abspath('./media'), self.payload['file'])
                 conn.setopt(conn.HTTPPOST, [('name', 'upload_file'), (self.payload['file'], (conn.FORM_FILE, local_file))])
-            else:
-                conn.setopt(conn.URL, self.url)
-                conn.setopt(conn.HTTPPOST, [('fileset_name', uep_add_folder_name)])
+#            else:
+#                conn.setopt(conn.URL, self.url)
+#                conn.setopt(conn.HTTPPOST, [('fileset_name', uep_add_folder_name)])
 
         if self.payload and method == 'UEP_UPLOAD_PKG':
             conn.setopt(conn.HTTPPOST, [('name', 'upload_file'), ('file', (conn.FORM_FILE, self.payload))])
@@ -114,7 +114,7 @@ class corp_conn:
         elif method == 'DELETE':
             conn.setopt(pycurl.CUSTOMREQUEST, 'DELETE')       
 
-        if self.proxy_url :
+        if self.proxy_url:
             if ':' in self.proxy_url:
                 proxy = self.proxy_url.rsplit(':', 1)[0]
                 port = int(self.proxy_url.rsplit(':', 1)[1])               
@@ -157,8 +157,9 @@ class corp_conn:
             #special characater replacement and concatenate with url
             urls=list()
             filenames = os.listdir('./media')
+            path = os.path.abspath('./media')
             for filename in filenames:
-                new_name = re.sub(r"([^A-Za-z0-9])", r"_", filename.rsplit(".", 1)[0]) + '.' + filename.rsplit(".", 1)[1]
+                new_name = re.sub(r"([^A-Za-z0-9-])", r"_", filename.rsplit(".", 1)[0]) + '.' + filename.rsplit(".", 1)[1]
                 os.rename(os.path.join(path, filename), os.path.join(path, new_name))
                 urls.append(self.pub_s3_url + new_name)
             skeleton={
@@ -195,20 +196,29 @@ class corp_conn:
 def pub():
     config = configparser.ConfigParser()
     config.read('credential.ini')
-    pub_swid_lst=config['pub']['SwId'].spilit(',')
+    pub_swid_lst=config['pub']['SwId'].split(',')
     pub_swver=config['pub']['SwVer']
     for swid in pub_swid_lst:
-        rn_url = config['url']['get_rn_id'] % ( swid, pub_swver )
-        uep_s3_url= config['url']['uep_s3']
+        rn_url = config['pub']['get_rn_id'] % ( swid, pub_swver )
         get_rn_id = corp_conn(rn_url, verbose=False)
-        rn_media_url = config['url']['put_media_data'] % (json.loads(get_rn_id.saml_resp())[0]['releaseNoteId'],)
+        get_rn_id.saml_resp()
+        rn_media_url = config['pub']['put_media_data'] % (json.loads(get_rn_id.body.decode('utf-8'))[0]['releaseNoteId'],)
+        uep_s3_url= config['pub']['uep_s3']
         put_rn_info = corp_conn(rn_media_url, verbose=False, pub_s3_url = uep_s3_url)
-        put_rn_info.gen_payload(type='DRN')
-        put_rn_info.request(request_url=self.url, method='PUT')
-    uep_url = config['url']['uep_url']
+        put_rn_info.gen_payload(type='PUB')
+        put_rn_info.request(request_url=rn_media_url, method='PUT')
+    
+    uep_url = config['pub']['uep_url'] + '/drn_' + pub_swver
     put_file_from_uep_admin = corp_conn(uep_url, verbose=False)
+    put_file_from_uep_admin.saml_resp()
+    if put_file_from_uep_admin.status_code != 200:
+        put_file_from_uep_admin.request(config['pub']['uep_url'] + '?fileset_name={0}'.format('/drn_' + pub_swver), 'UEP_FIRM_DIR')
+        if put_file_from_uep_admin.status_code != 201:
+            print('unexpected errod, adding directory failed, quit')
+            sys.exit(-1)
+
     for local_file in os.listdir('./media'):
-        put_file_from_uep_admin.request(request_url=self.url, method='UEP_UPLOAD_DRN', payload={'file': local_file})
+        put_file_from_uep_admin.request(request_url=uep_url, method='UEP_UPLOAD_DRN', payload={'file': local_file})
 
 def release():
     config = configparser.ConfigParser()
@@ -227,13 +237,14 @@ def release():
             'db_name':base64.b64decode(config['drn_db']['db_name']).decode('utf-8').rstrip(),
             'endpoint':config['drn_db']['endpoint']
             }
-    release_note_id=1927
-    url=config['url']['releases_url'] % release_note_id
+    release_note_id=config['release']['rn_id']
+    url=config['release']['releases_url'] % release_note_id
     
     print (subprocess.check_output('ssh -f -o ExitOnForwardFailure=yes {5} sleep 10; echo "SELECT * FROM public.release_note WHERE id = \"{4}\"; UPDATE public.release_note SET type = \'OPERATOR\' WHERE id = \"{4}\"; SELECT * FROM public.release_note WHERE id = \"{4}\";"|PGPASSWORD="{0}" psql.exe --host=localhost --port="{1}" --username="{2}" --dbname="{3}"'.format(psql_credential['password'], psql_credential['port'], psql_credential['user'], psql_credential['db_name'], release_note_id, psql_credential['endpoint']), shell=True).decode("utf-8"))
     gene = corp_conn(url, verbose=False)
     gene.saml_resp()
-    gene.request(gene.url, 'POST', payload)
+    #[IMPORTANT] request will change self.url to the last call url
+    gene.request(url, 'POST', payload)
 
 def unpub():
     config = configparser.ConfigParser()
@@ -318,7 +329,7 @@ def add(file_name, sim_id_lst_pattern):
             payload = '<AccessPath>ota:{0}:{1}:{2}:{3}</AccessPath>'.format(app_sw_id, src_ver, cdf_id, src_cdf_rev) 
         else:
             payload = '<AccessPath>ota:{0}:{1}:{2}:{3}:*:*:*:*:{4}</AccessPath>'.format(app_sw_id, src_ver, cdf_id, src_cdf_rev, sim_id)
-            query_gene.request(query_gene.url, 'UEP_POST', payload)
+        query_gene.request(query_url, 'UEP_POST', payload)
 
     pack_up = corp_conn(upload_url, verbose=False)
     pack_up.saml_resp()
@@ -358,7 +369,7 @@ def change_priority():
         url = 'https://{0}/services/updates/applications/s1test-apklive/{1}/metadata'.format(domain_name, model_id)
         gene = corp_conn(url , verbose=False)
         gene.saml_resp()
-        resp_xml = gene.request(gene.url, 'UEP_QUERY')
+        resp_xml = gene.request(url, 'UEP_QUERY')
         import xml.etree.ElementTree as ET
         root = ET.fromstring(resp_xml)
         #root is a list of <MetaDataObject>
@@ -381,12 +392,12 @@ def change_priority():
         else:
             priority = ET.SubElement(root, 'Priority')
             priority.text = '200'
-        print (ET.tostring(root))
-        input()
         payload = ET.tostring(root)
         gene.request(url, 'UEP_PUT', payload)
 
 if __name__ == '__main__':
+#    pub()
+#    release()
 #    multi_add()
 #    unpub()
 #    change_priority()
