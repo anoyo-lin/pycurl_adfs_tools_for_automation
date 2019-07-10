@@ -64,26 +64,26 @@ class corp_conn:
             credential = self.uep_user + ':' + self.uep_pwd
             conn.setopt(conn.USERPWD, credential)
 
-        if self.payload and method == 'UEP_UPLOAD_DRN':
-            try:
-                uep_add_folder_name = 'drn_' + self.pub_swver
-            except:
-                print ('wrong payload')
-                sys.exit(-1)
-            if 'file' in self.payload:
+#        if self.payload and method == 'UEP_UPLOAD_DRN':
+#            try:
+#                uep_add_folder_name = 'drn_' + self.pub_swver
+#            except:
+#                print ('wrong payload')
+#                sys.exit(-1)
+#            if 'file' in self.payload:
 #                if self.uep_folder_made == False:
 #                    self.request(method='UEP_UPLOAD_DRN')
 #                    self.uep_folder_made = True
 #                uep_add_folder_url = os.path.join(self.url, uep_add_folder_name)
 #                conn.setopt(conn.URL, uep_add_folder_url)
-                local_file = os.path.join(os.path.abspath('./media'), self.payload['file'])
-                conn.setopt(conn.HTTPPOST, [('name', 'upload_file'), (self.payload['file'], (conn.FORM_FILE, local_file))])
+#                local_file = os.path.join(os.path.abspath('./media'), self.payload['file'])
+#                conn.setopt(conn.HTTPPOST, [('name', 'upload_file'), (self.payload['file'], (conn.FORM_FILE, local_file))])
 #            else:
 #                conn.setopt(conn.URL, self.url)
 #                conn.setopt(conn.HTTPPOST, [('fileset_name', uep_add_folder_name)])
 
         if self.payload and method == 'UEP_UPLOAD_PKG':
-            conn.setopt(conn.HTTPPOST, [('name', 'upload_file'), ('file', (conn.FORM_FILE, self.payload))])
+            conn.setopt(conn.HTTPPOST, [('name', 'upload_file'), (self.payload.split('/')[-1], (conn.FORM_FILE, self.payload))])
             
         if self.payload and method == 'UEP_POST':
             conn.setopt(pycurl.HTTPHEADER, ['Content-Type: application/xml'])
@@ -209,16 +209,17 @@ def pub():
         put_rn_info.request(request_url=rn_media_url, method='PUT')
     
     uep_url = config['pub']['uep_url'] + '/drn_' + pub_swver
-    put_file_from_uep_admin = corp_conn(uep_url, verbose=False)
+    put_file_from_uep_admin = corp_conn(uep_url, verbose=True)
     put_file_from_uep_admin.saml_resp()
     if put_file_from_uep_admin.status_code != 200:
-        put_file_from_uep_admin.request(config['pub']['uep_url'] + '?fileset_name={0}'.format('/drn_' + pub_swver), 'UEP_FIRM_DIR')
+        put_file_from_uep_admin.request(config['pub']['uep_url'] + '?fileset_name={0}'.format('drn_' + pub_swver), 'UEP_FIRM_DIR')
         if put_file_from_uep_admin.status_code != 201:
             print('unexpected errod, adding directory failed, quit')
             sys.exit(-1)
 
+    path = os.path.abspath('./media')
     for local_file in os.listdir('./media'):
-        put_file_from_uep_admin.request(request_url=uep_url, method='UEP_UPLOAD_DRN', payload={'file': local_file})
+        put_file_from_uep_admin.request(request_url=uep_url, method='UEP_UPLOAD_PKG', payload=os.path.join(path, local_file))
 
 def release():
     config = configparser.ConfigParser()
@@ -396,7 +397,7 @@ def change_priority():
         gene.request(url, 'UEP_PUT', payload)
 
 if __name__ == '__main__':
-#    pub()
+    pub()
 #    release()
 #    multi_add()
 #    unpub()
